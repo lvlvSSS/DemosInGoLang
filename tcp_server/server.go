@@ -67,16 +67,11 @@ func (server *TCPServer) Close() {
 		}
 	}()
 	close(server.messages)
-	server.ln.Close()
+	_ = server.ln.Close()
 }
 
 // The Broadcast is used to send msg to all clients
 func (server *TCPServer) Broadcast(msg []byte) {
-	defer func() {
-		if err := recover(); err != nil {
-			Log.Fatalf("[server.Send] The server is already closed!!! : %s", err)
-		}
-	}()
 	if server.messages == nil {
 		panic("[server.Send] please start the server first!")
 	}
