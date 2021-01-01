@@ -1,4 +1,4 @@
-module tcp_server
+module go_tools
 
 go 1.14
 

@@ -2,7 +2,7 @@
 *.class
 
 # go mod
-**/go.sum
+go.sum
 # Log file
 *.log
 
