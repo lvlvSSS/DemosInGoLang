@@ -16,16 +16,16 @@ import (
 type TCPServer struct {
 	ln *net.TCPListener
 
-	/* The Clients : store all the clients that connected to this server. */
+	/* 	The Clients : store all the clients that connected to this server. */
 	clients map[chan []byte]*net.TCPConn
 
-	/* The messages: the data in the message would be broadcast to all clients that connected to this server */
+	/* 	The messages: the data in the message would be broadcast to all clients that connected to this server */
 	messages chan []byte
 
-	/* The addClient : add the client with thread safe way. */
+	/* 	The addClient : add the client with thread safe way. */
 	addClients chan addClientUnion
 
-	/* the removeClients: remove the client with thread safe way. */
+	/* 	the removeClients: remove the client with thread safe way. */
 	removeClients chan chan []byte
 
 	/*
