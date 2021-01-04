@@ -13,7 +13,7 @@ import (
 func main() {
 	myserver := server.TCPServer{}
 	myserver.Start("127.0.0.1:50000")
-	myserver.Register("127.0.0.1", func(msg []byte) {
+	myserver.AddLast("127.0.0.1", func(msg []byte) {
 		fmt.Printf("Server receive msg from 127.0.0.1 : \r\n%s \r\n", string(msg))
 	})
 

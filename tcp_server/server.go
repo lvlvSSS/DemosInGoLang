@@ -2,7 +2,9 @@ package tcp_server
 
 import (
 	"bytes"
+	"container/list"
 	"fmt"
+	"github.com/pkg/errors"
 	Log "github.com/sirupsen/logrus"
 	"net"
 	"strings"
@@ -36,6 +38,9 @@ type TCPServer struct {
 
 	/*  The callbacks store the callback function that will handle the msg from clients */
 	callbacks sync.Map
+
+	/* the rwLock is used to lock the value of callbacks */
+	rwLock sync.RWMutex
 }
 
 /*
@@ -44,14 +49,46 @@ type TCPServer struct {
 type Callback4Client func(msg []byte)
 
 /*
-	The Register is used to store the callbacks
+	The AddLast is used to store the callbacks
 */
-func (server *TCPServer) Register(ip string, callback Callback4Client) {
-	if _, ok := server.callbacks.Load(ip); ok {
-		Log.Warnf(
-			"[server.Register] already exist callback for client[%s], and will be replaced", ip)
+func (server *TCPServer) AddLast(ip string, callback Callback4Client) error {
+	callbacks, ok := server.callbacks.Load(ip)
+	callbacksList, _ := callbacks.(*list.List)
+	if !ok {
+		Log.Debugf(
+			"[server.AddLast] callback list not exist for client[%s], and will be created", ip)
+		callbacksList = list.New()
 	}
-	server.callbacks.Store(ip, callback)
+	if _, err := server.insertCallback(callbacksList.Len(), callback, callbacksList); err != nil {
+		return err
+	}
+	server.callbacks.Store(ip, callbacksList)
+	return nil
+}
+
+/*
+	the insertCallback is to insert callback to list.
+*/
+func (server *TCPServer) insertCallback(
+	position int, callback Callback4Client, callbacks *list.List) (bool, error) {
+	defer server.rwLock.Unlock()
+	/* write lock start */
+	server.rwLock.Lock()
+	if callbacks.Len() < 0 || position > callbacks.Len()-1 {
+		return false, errors.New("the position is larger than length")
+	}
+	at := callbacks.Front().Prev()
+	for i := 0; i < position-2; i++ {
+		if at == nil {
+			callbacks.PushBack(callback)
+			break
+		}
+		at = at.Next()
+	}
+	if at != nil {
+		callbacks.InsertAfter(callback, at)
+	}
+	return true, nil
 }
 
 type addClientUnion struct {
@@ -74,7 +111,8 @@ func (server *TCPServer) GetHeartBeat() (dur time.Duration) {
 func (server *TCPServer) Close() {
 	defer func() {
 		if err := recover(); err != nil {
-			Log.Fatal(fmt.Sprintf("Close server[%[1]s], error: %[2]s", server.ln.Addr(), err))
+			Log.Fatal(fmt.Sprintf(
+				"Close server[%[1]s], error: %[2]s", server.ln.Addr(), err))
 		}
 	}()
 	close(server.messages)
@@ -101,17 +139,20 @@ func (server *TCPServer) Broadcast(msg []byte) {
 func (server *TCPServer) Start(address string) {
 	addr, err := net.ResolveTCPAddr("", address)
 	if err != nil {
-		Log.Error(fmt.Sprintf("Resolve address[%[1]s], error: %[2]s", address, err))
+		Log.Error(fmt.Sprintf(
+			"Resolve address[%[1]s], error: %[2]s", address, err))
 	}
 
 	server.ln, err = net.ListenTCP("tcp", addr)
 	if err != nil {
-		Log.Error(fmt.Sprintf("Listen the address[%[1]s] errors: %[2]s", addr, err))
+		Log.Error(fmt.Sprintf(
+			"Listen the address[%[1]s] errors: %[2]s", addr, err))
 	}
 
 	/* initialize the chan */
 	server.initChan()
-	Log.Infof("[server.Start] server start to listen[%s]", addr.String())
+	Log.Infof(
+		"[server.Start] server start to listen[%s]", addr.String())
 	go server.listenForAccept()
 }
 
@@ -124,33 +165,37 @@ func (server *TCPServer) initChan() {
 		server.duration = time.Second * 60
 	}
 	Log.SetLevel(Log.DebugLevel)
-	Log.Debug("[server.initChan] the fields of server initialized.")
+	Log.Debug(
+		"[server.initChan] the fields of server initialized.")
 	go func() {
 		for {
 			select {
 			case client := <-server.addClients:
 				server.clients[client.channel] = client.client
-				Log.Infof("[server.initChan] Client[%s] added", client.client.RemoteAddr())
+				Log.Infof(
+					"[server.initChan] Client[%s] added", client.client.RemoteAddr())
 			case client := <-server.removeClients:
 				tmp, ok := server.clients[client]
 				if !ok {
-					Log.Debug("[server.initChan] client need to be removed , but not exists")
+					Log.Debug(
+						"[server.initChan] client need to be removed , but not exists")
 					break
 				}
-				Log.Infof("[server.initChan] client[%s] removed", tmp.RemoteAddr())
+				Log.Infof(
+					"[server.initChan] client[%s] removed", tmp.RemoteAddr())
 				delete(server.clients, client)
 				close(client)
 			case msg, ok := <-server.messages:
 				/* if close the messages chan , then close all the clients */
 				if !ok {
 					Log.Debug("[server.initChan] close all clients that connected to server")
-					for client, _ := range server.clients {
+					for client := range server.clients {
 						close(client)
 					}
 					return
 				}
 				Log.Debugf("[server.initChan] ready to broadcast message[%v] to all clients", msg)
-				for client, _ := range server.clients {
+				for client := range server.clients {
 					client <- msg
 				}
 			}
@@ -161,14 +206,18 @@ func (server *TCPServer) initChan() {
 func (server *TCPServer) listenForAccept() {
 	defer func() {
 		if err := recover(); err != nil {
-			Log.Fatalf("[server.listenForAccept] Accept error: %s", err)
+			Log.Fatalf(
+				"[server.listenForAccept] Accept error: %s", err)
 		}
 	}()
 	for {
 		conn, err := server.ln.AcceptTCP()
-		Log.Infof("[server.listenForAccept] accept a new connection[%s] ", conn.RemoteAddr().String())
+		Log.Infof(
+			"[server.listenForAccept] accept a new connection[%s] ",
+			conn.RemoteAddr().String())
 		if err != nil {
-			Log.Warnf("Accept failed: %s", err.Error())
+			Log.Warnf(
+				"Accept failed: %s", err.Error())
 			return
 		}
 
@@ -180,7 +229,8 @@ func (server *TCPServer) listenForAccept() {
 func (server *TCPServer) handleRW(conn *net.TCPConn) {
 	defer func() {
 		if err := recover(); err != nil {
-			Log.Errorf("[server.handleRW] errors: %s", err)
+			Log.Errorf(
+				"[server.handleRW] errors: %s", err)
 		}
 	}()
 	/* Add the clients to server.clients */
@@ -191,7 +241,8 @@ func (server *TCPServer) handleRW(conn *net.TCPConn) {
 	}
 	server.addClients <- clientUnion
 
-	Log.Infof("[server.handleRW] Client[%s] connected to the server",
+	Log.Infof(
+		"[server.handleRW] Client[%s] connected to the server",
 		conn.RemoteAddr().String())
 
 	/* set the heartbeat timer.*/
@@ -211,7 +262,8 @@ func (server *TCPServer) handleRW(conn *net.TCPConn) {
 		for {
 			total, err := conn.Read(buf)
 			if err != nil || total == 0 {
-				Log.Infof("[server.handleRW] client[%s] is disconnected, caused : %v",
+				Log.Infof(
+					"[server.handleRW] client[%s] is disconnected, caused : %v",
 					conn.RemoteAddr().String(), err)
 				server.removeClients <- channelFromServer
 				conn.Close()
@@ -219,7 +271,8 @@ func (server *TCPServer) handleRW(conn *net.TCPConn) {
 				return
 			}
 
-			Log.Debugf("[server.handleRW] receive msg from client[%s]", conn.RemoteAddr())
+			Log.Debugf(
+				"[server.handleRW] receive msg from client[%s]", conn.RemoteAddr())
 			timer.Stop()
 			timer.Reset(server.duration)
 
@@ -248,20 +301,24 @@ func (server *TCPServer) handleRW(conn *net.TCPConn) {
 				heartbeat timeout, then close the connection ,
 				close the channel between the server and the specified client.
 			*/
-			Log.Debugf("[server.handleRW] client[%s] timeout - no heartbeat", conn.RemoteAddr())
+			Log.Debugf(
+				"[server.handleRW] client[%s] timeout - no heartbeat", conn.RemoteAddr())
 			server.removeClients <- channelFromServer
 			conn.Close()
 			return
 		case msg, ok := <-channelFromServer:
 			if !ok {
-				Log.Debug("[server.handleRW] - someone channel closed by server")
+				Log.Debug(
+					"[server.handleRW] - someone channel closed by server")
 				conn.Close()
 				return
 			}
-			Log.Debugf("[server.handleRW] ready to send msg to client[%s]", conn.RemoteAddr())
+			Log.Debugf(
+				"[server.handleRW] ready to send msg to client[%s]", conn.RemoteAddr())
 			if _, err := conn.Write(msg); err != nil {
 				server.removeClients <- channelFromServer
-				Log.Errorf("[server.handleRW] write msg[%s] to client[%s] , errors : %s",
+				Log.Errorf(
+					"[server.handleRW] write msg[%s] to client[%s] , errors : %s",
 					string(msg), conn.RemoteAddr(), err.Error())
 				conn.Close()
 			}
