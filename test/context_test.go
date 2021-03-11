@@ -20,3 +20,16 @@ func TestOsArgs(t *testing.T) {
 	t.Log(len(os.Args))
 	t.Logf("%v", os.Args)
 }
+
+func TestSlice(t *testing.T) {
+
+	s := []byte("abbbbbbb")
+	t.Log(cap(s),len(s))
+	s1 := append(s, 'a')
+	t.Log(cap(s1),len(s1))
+	s2 := append(s, 'b')
+	t.Log(cap(s2),len(s2))
+	//t.Log(s1, "==========", s2)
+	t.Log(string(s1), "==========", string(s2))
+
+}

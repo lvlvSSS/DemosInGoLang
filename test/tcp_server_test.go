@@ -13,3 +13,14 @@ func TestResolveAddr(t *testing.T) {
 	var dur time.Duration
 	t.Log(dur)
 }
+
+type changeRef struct{
+	number int
+}
+
+func TestChangeRef(t *testing.T){
+	a := &changeRef{number:2}
+
+	a.number = 1
+	t.Log(a.number)
+}

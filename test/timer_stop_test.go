@@ -57,11 +57,11 @@ func TestSwitchFallthrough(t *testing.T) {
 	//var str := "erin"
 	switch str := "nelson"; {
 	case str == "nelson":
-		t.Log("nelson")
+		//t.Log("nelson")
 		fallthrough
 	case str == "erin":
 		t.Log("erin")
-		fallthrough
+		//fallthrough
 	default:
 		t.Log("default")
 	}
